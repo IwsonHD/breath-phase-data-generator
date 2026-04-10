@@ -11,6 +11,7 @@ Wszystkie najwazniejsze parametry sa konfigurowalne z poziomu UI:
 - `MODE` (`Nose` / `Mouth`)
 - `MICROPHONEQUALITY` (`Good` / `Medium` / `Bad`)
 - `MEANSOFUSAGE` (`Training` / `Evaluation`)
+- `MICROPHONE INPUT` (wybor urzadzenia wejscia audio)
 - katalog bazowy zapisu danych (Output folder)
 
 ## Wymagania
@@ -54,6 +55,29 @@ python breathing_recorder.py
 
 Po starcie zobaczysz okno Pygame z formularzem konfiguracyjnym i przyciskami sterowania.
 
+## Build EXE (Windows)
+
+Po zainstalowaniu zaleznosci mozesz zbudowac samodzielny plik `.exe`:
+
+```powershell
+.\build_exe.ps1
+```
+
+Domyslnie powstaje:
+- `dist/BreathingRecorder.exe`
+
+Plik `.exe` mozesz przekazac uzytkownikowi razem z instrukcja, ze aplikacja zapisuje dane do folderu `data` obok pliku wykonywalnego (lub do folderu wybranego w UI).
+
+Dodatkowe opcje builda:
+
+```powershell
+# build katalogowy (bez --onefile)
+.\build_exe.ps1 -OneFile:$false
+
+# wlasna nazwa artefaktu
+.\build_exe.ps1 -Name "BreathRecorderApp"
+```
+
 ## Konfiguracja w UI
 
 W gornym panelu ustawiasz:
@@ -62,6 +86,7 @@ W gornym panelu ustawiasz:
 - `MODE` - `Nose` albo `Mouth`
 - `MICROPHONEQUALITY` - `Good`, `Medium`, `Bad`
 - `MEANSOFUSAGE` - `Training` albo `Evaluation`
+- `MICROPHONE INPUT` - wybierane strzalkami `<` i `>` (zmiana mozliwa, gdy nagrywanie jest zatrzymane)
 
 Mozesz wpisac sciezke recznie albo kliknac `Browse` i wybrac folder.
 
@@ -107,10 +132,18 @@ Wartosci probek odpowiadaja pozycjom w zapisanym pliku WAV.
 
 ## Ustawienie wejscia audio (INPUT_DEVICE_INDEX)
 
-Aktualnie indeks urzadzenia wejsciowego jest ustawiony w kodzie:
-- `INPUT_DEVICE_INDEX = 1` w pliku `breathing_recorder.py`
+Domyslnie aplikacja uzywa systemowego urzadzenia wejsciowego.
 
-Przy starcie aplikacja wypisuje liste urzadzen audio w konsoli. Jezeli nagrywanie nie dziala, zmien `INPUT_DEVICE_INDEX` na poprawny numer urzadzenia.
+Mozesz tez wybrac mikrofon bezposrednio w UI (`MICROPHONE INPUT`).
+
+Przy starcie aplikacja wypisuje liste urzadzen audio w konsoli. Jesli chcesz wymusic konkretne urzadzenie, ustaw zmienna srodowiskowa:
+
+```powershell
+$env:BREATH_INPUT_DEVICE_INDEX = "1"
+python breathing_recorder.py
+```
+
+Wersja `.exe` dziala analogicznie (ustaw zmienna srodowiskowa przed uruchomieniem). Jesli podany indeks jest niepoprawny, aplikacja automatycznie wraca do urzadzenia domyslnego.
 
 ## Troubleshooting
 
@@ -132,7 +165,8 @@ pip install -r requirements.txt
 ### Problem: brak dzwieku / zle urzadzenie
 
 - sprawdz liste urzadzen wypisana przy starcie
-- ustaw poprawne `INPUT_DEVICE_INDEX` w kodzie
+- wybierz inne urzadzenie w sekcji `MICROPHONE INPUT` w UI
+- ewentualnie ustaw `BREATH_INPUT_DEVICE_INDEX` przed uruchomieniem
 - upewnij sie, ze mikrofon ma uprawnienia systemowe
 
 ## Pliki w projekcie

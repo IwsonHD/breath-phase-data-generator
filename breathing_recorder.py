@@ -1,6 +1,7 @@
 import csv
 import datetime
 import os
+import sys
 import time
 import wave
 from dataclasses import dataclass
@@ -20,13 +21,35 @@ AUDIO_CHUNK = 2205
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
-INPUT_DEVICE_INDEX = 1
+DEFAULT_INPUT_DEVICE_INDEX = None
+INPUT_DEVICE_INDEX_ENV = "BREATH_INPUT_DEVICE_INDEX"
 
 TRAINING_RECORDING_DURATION = 10
 EVAL_RECORDING_DURATION = 60
 
 TRAINING_TARGET_SAMPLES = RATE * TRAINING_RECORDING_DURATION
 EVAL_TARGET_SAMPLES = RATE * EVAL_RECORDING_DURATION
+
+
+def resolve_input_device_index() -> Optional[int]:
+    value = os.environ.get(INPUT_DEVICE_INDEX_ENV)
+    if value is None or not value.strip():
+        return DEFAULT_INPUT_DEVICE_INDEX
+
+    try:
+        return int(value)
+    except ValueError:
+        print(
+            f"Invalid {INPUT_DEVICE_INDEX_ENV}={value!r}. "
+            "Falling back to system default input device."
+        )
+        return DEFAULT_INPUT_DEVICE_INDEX
+
+
+def get_application_base_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 class NoseMouth(Enum):
@@ -52,6 +75,7 @@ class AppConfig:
     microphone_quality: MicrophoneQuality
     person_name: str
     means_of_usage: DataMeansOfUsage
+    input_device_index: Optional[int] = None
 
     def copy(self) -> "AppConfig":
         return AppConfig(
@@ -60,31 +84,113 @@ class AppConfig:
             microphone_quality=self.microphone_quality,
             person_name=self.person_name,
             means_of_usage=self.means_of_usage,
+            input_device_index=self.input_device_index,
         )
 
 
 class SharedAudioResource:
     def __init__(self):
         self.p = pyaudio.PyAudio()
+        self.input_devices = self._collect_input_devices()
         self._log_available_devices()
-        self.stream = self.p.open(
+
+        requested_index = resolve_input_device_index()
+        if requested_index is not None and not self.is_known_input_device(requested_index):
+            print(f"Input device index {requested_index} is not available. Falling back to default.")
+            requested_index = None
+
+        self.stream, self.selected_device_index = self._open_stream_with_fallback(requested_index)
+
+        self.buffer = None
+        self.read(AUDIO_CHUNK)
+
+    def _collect_input_devices(self):
+        devices = []
+        for i in range(self.p.get_device_count()):
+            dev_info = self.p.get_device_info_by_index(i)
+            if int(dev_info.get("maxInputChannels", 0)) > 0:
+                devices.append((i, dev_info["name"]))
+        return devices
+
+    def _log_available_devices(self):
+        print("Available audio devices:")
+        if not self.input_devices:
+            print("  No input devices detected by PyAudio.")
+            return
+
+        for i, name in self.input_devices:
+            dev_info = self.p.get_device_info_by_index(i)
+            print(f"Device {i}: {name}")
+            print(f"  Max Input Channels: {dev_info['maxInputChannels']}")
+            print(f"  Default Sample Rate: {dev_info['defaultSampleRate']}")
+
+    def _open_stream(self, input_device_index: Optional[int]):
+        stream_kwargs = dict(
             format=FORMAT,
             channels=CHANNELS,
             rate=RATE,
             input=True,
             frames_per_buffer=AUDIO_CHUNK,
-            input_device_index=INPUT_DEVICE_INDEX,
         )
+        if input_device_index is not None:
+            stream_kwargs["input_device_index"] = input_device_index
+        return self.p.open(**stream_kwargs)
+
+    def _open_stream_with_fallback(self, requested_index: Optional[int]):
+        try:
+            stream = self._open_stream(requested_index)
+            effective_index = requested_index
+        except Exception as exc:
+            if requested_index is None:
+                raise
+
+            print(f"Could not open input device index {requested_index}: {exc}")
+            print("Falling back to system default input device.")
+            stream = self._open_stream(None)
+            effective_index = None
+
+        if effective_index is None:
+            print("Using system default input device.")
+        else:
+            print(f"Using input device: {self.describe_input_device(effective_index)}")
+
+        return stream, effective_index
+
+    def is_known_input_device(self, input_device_index: int) -> bool:
+        return any(idx == input_device_index for idx, _ in self.input_devices)
+
+    def list_input_device_indices(self):
+        return [idx for idx, _ in self.input_devices]
+
+    def describe_input_device(self, input_device_index: Optional[int]) -> str:
+        if input_device_index is None:
+            return "System default"
+
+        for idx, name in self.input_devices:
+            if idx == input_device_index:
+                return f"{idx}: {name}"
+
+        return f"{input_device_index}: unavailable"
+
+    def set_input_device(self, input_device_index: Optional[int]):
+        requested_index = input_device_index
+        if requested_index is not None and not self.is_known_input_device(requested_index):
+            raise ValueError(f"Input device index {requested_index} is not available.")
+
+        if requested_index == self.selected_device_index:
+            return
+
+        new_stream, effective_index = self._open_stream_with_fallback(requested_index)
+
+        old_stream = self.stream
+        self.stream = new_stream
+        self.selected_device_index = effective_index
+
+        old_stream.stop_stream()
+        old_stream.close()
+
         self.buffer = None
         self.read(AUDIO_CHUNK)
-
-    def _log_available_devices(self):
-        print("Available audio devices:")
-        for i in range(self.p.get_device_count()):
-            dev_info = self.p.get_device_info_by_index(i)
-            print(f"Device {i}: {dev_info['name']}")
-            print(f"  Max Input Channels: {dev_info['maxInputChannels']}")
-            print(f"  Default Sample Rate: {dev_info['defaultSampleRate']}")
 
     def read(self, size: int):
         self.buffer = self.stream.read(size, exception_on_overflow=False)
@@ -141,6 +247,9 @@ class BreathingRecorder:
             raise ValueError("Output folder cannot be empty.")
         if not self.ui_config.person_name.strip():
             raise ValueError("Person name cannot be empty.")
+
+        self.audio.set_input_device(self.ui_config.input_device_index)
+        self.ui_config.input_device_index = self.audio.selected_device_index
 
         self.active_config = self.ui_config.copy()
         self.active_target_samples = self._target_samples_for(self.active_config.means_of_usage)
@@ -300,6 +409,20 @@ def draw_button(screen, font, rect, text, selected=False, accent=False):
     screen.blit(text_surface, (text_x, text_y))
 
 
+def fit_text_to_width(font, text: str, max_width: int) -> str:
+    if font.get_rect(text).width <= max_width:
+        return text
+
+    trimmed = text
+    while len(trimmed) > 3:
+        candidate = trimmed + "..."
+        if font.get_rect(candidate).width <= max_width:
+            return candidate
+        trimmed = trimmed[:-1]
+
+    return "..."
+
+
 def run_ui(recorder: BreathingRecorder):
     pygame.init()
 
@@ -330,6 +453,16 @@ def run_ui(recorder: BreathingRecorder):
         DataMeansOfUsage.Training: pygame.Rect(40, 420, 170, 48),
         DataMeansOfUsage.Evaluation: pygame.Rect(230, 420, 170, 48),
     }
+
+    input_device_options = [None] + recorder.audio.list_input_device_indices()
+    if recorder.ui_config.input_device_index not in input_device_options:
+        recorder.ui_config.input_device_index = recorder.audio.selected_device_index
+    if recorder.ui_config.input_device_index not in input_device_options:
+        recorder.ui_config.input_device_index = None
+
+    mic_prev_button = pygame.Rect(40, 500, 56, 42)
+    mic_value_rect = pygame.Rect(108, 500, 540, 42)
+    mic_next_button = pygame.Rect(660, 500, 56, 42)
 
     controls = {
         "start": pygame.Rect(40, 690, 220, 48),
@@ -374,6 +507,21 @@ def run_ui(recorder: BreathingRecorder):
                     if rect.collidepoint(mouse_pos):
                         recorder.ui_config.means_of_usage = usage
 
+                if mic_prev_button.collidepoint(mouse_pos) or mic_next_button.collidepoint(mouse_pos):
+                    if recorder.recording:
+                        message = "Stop recording before changing microphone."
+                    else:
+                        current = recorder.ui_config.input_device_index
+                        current_pos = (
+                            input_device_options.index(current)
+                            if current in input_device_options
+                            else 0
+                        )
+                        step = -1 if mic_prev_button.collidepoint(mouse_pos) else 1
+                        new_pos = (current_pos + step) % len(input_device_options)
+                        recorder.ui_config.input_device_index = input_device_options[new_pos]
+                        message = ""
+
                 if controls["start"].collidepoint(mouse_pos) and not recorder.recording:
                     recorder.update_ui_config(
                         AppConfig(
@@ -382,6 +530,7 @@ def run_ui(recorder: BreathingRecorder):
                             microphone_quality=recorder.ui_config.microphone_quality,
                             person_name=person_input.text,
                             means_of_usage=recorder.ui_config.means_of_usage,
+                            input_device_index=recorder.ui_config.input_device_index,
                         )
                     )
                     try:
@@ -418,6 +567,7 @@ def run_ui(recorder: BreathingRecorder):
                             microphone_quality=recorder.ui_config.microphone_quality,
                             person_name=person_input.text,
                             means_of_usage=recorder.ui_config.means_of_usage,
+                            input_device_index=recorder.ui_config.input_device_index,
                         )
                     )
                     try:
@@ -479,6 +629,19 @@ def run_ui(recorder: BreathingRecorder):
                 selected=(recorder.ui_config.means_of_usage is usage),
             )
 
+        mic_label, _ = title_font.render("MICROPHONE INPUT", (230, 230, 230))
+        screen.blit(mic_label, (40, 472))
+        draw_button(screen, font, mic_prev_button, "<", accent=True)
+        draw_button(screen, font, mic_next_button, ">", accent=True)
+
+        pygame.draw.rect(screen, (30, 40, 52), mic_value_rect, border_radius=6)
+        pygame.draw.rect(screen, (100, 100, 100), mic_value_rect, 2, border_radius=6)
+        selected_device_label = recorder.audio.describe_input_device(recorder.ui_config.input_device_index)
+        selected_device_label = fit_text_to_width(font, selected_device_label, mic_value_rect.width - 20)
+        mic_text_surface, _ = font.render(selected_device_label, (255, 255, 255))
+        mic_text_y = mic_value_rect.y + (mic_value_rect.height - mic_text_surface.get_height()) // 2
+        screen.blit(mic_text_surface, (mic_value_rect.x + 10, mic_text_y))
+
         draw_button(screen, font, controls["start"], "START (SPACE)", accent=True)
         draw_button(screen, font, controls["stop"], "STOP (S)")
         draw_button(screen, font, controls["quit"], "QUIT (ESC)")
@@ -507,11 +670,11 @@ def run_ui(recorder: BreathingRecorder):
             status_color = (220, 220, 220)
 
         status_surface, _ = font.render(status_text, status_color)
-        screen.blit(status_surface, (40, 500))
+        screen.blit(status_surface, (40, 560))
 
         if message:
             message_surface, _ = font.render(f"Error: {message}", (255, 120, 120))
-            screen.blit(message_surface, (40, 535))
+            screen.blit(message_surface, (40, 595))
 
         if recorder.recording:
             class_surface, _ = class_font.render(recorder.current_class.upper(), (84, 224, 146))
@@ -551,16 +714,19 @@ def run_ui(recorder: BreathingRecorder):
 
 
 def main():
-    default_output_root = os.path.abspath("./data")
+    default_output_root = os.path.join(get_application_base_dir(), "data")
+
+    audio = SharedAudioResource()
+
     initial_config = AppConfig(
         output_root=default_output_root,
         nose_mouth_mode=NoseMouth.Nose,
         microphone_quality=MicrophoneQuality.Medium,
         person_name="Kinga_M",
         means_of_usage=DataMeansOfUsage.Evaluation,
+        input_device_index=audio.selected_device_index,
     )
 
-    audio = SharedAudioResource()
     recorder = BreathingRecorder(audio, initial_config)
 
     try:
