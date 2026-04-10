@@ -152,7 +152,7 @@ Aby dataset byl jak najbardziej przydatny do treningu modelu:
 - Nagrajcie rozne style oddychania: spokojny oddech, szybszy oddech (hiperwentylacja), podwojne wdechy i podwojne wydechy. Im wiecej roznych wariantow, tym lepiej.
 - Nagrywajcie tylko nosem (ustawcie `MODE` na `Nose`).
 - Pilnujcie, zeby nie bylo szumow w tle (muzyka, rozmowy, TV, wentylator, ruch uliczny, klikanie klawiaturą).
-- Zmieniajcie polozenie mikrofonu miedzy sesjami (odleglosc i kat), zeby dane byly bardziej roznorodne i odporne na rozne warunki.
+- Znajdźcie wygodne ustawienie mikrofonu i go nie zmieniajcie (drobne zmiany mile widziane ale PROSZE upewnijcie się, że słychać dźwięk). 
 - Po pierwszym nagraniu odsluchajcie probke i sprawdzcie, czy oddech jest wyraznie slyszalny.
 - Jesli warunki nagrania sie zmieniaja, lepiej zrobic kilka krotszych sesji niz jedna bardzo dluga. (Training -> 10s/Evaluation -> 60s)
 
