@@ -159,6 +159,7 @@ Aby dataset byl jak najbardziej przydatny do treningu modelu:
 ## Gdzie przesłać dane?
 Po wygenerowaniu danych proszę umieścić folder eval oraz train zawierające wygenerowane dane na dysku w folderze nazwnym twoimi inicjalami lub Imieniem i pierwszą literą nazwiska
 LINK DO GOOGLE DRIVE - https://drive.google.com/drive/folders/15zvUczjwN4TCYZtvBDbmleqLHeGICHtm?usp=sharing
+DZIĘKUJEMY <3
 
 ## Troubleshooting
 
