@@ -156,6 +156,10 @@ Aby dataset byl jak najbardziej przydatny do treningu modelu:
 - Po pierwszym nagraniu odsluchajcie probke i sprawdzcie, czy oddech jest wyraznie slyszalny.
 - Jesli warunki nagrania sie zmieniaja, lepiej zrobic kilka krotszych sesji niz jedna bardzo dluga. (Training -> 10s/Evaluation -> 60s)
 
+## Gdzie przesłać dane?
+Po wygenerowaniu danych proszę umieścić folder eval oraz train zawierające wygenerowane dane na dysku w folderze nazwnym twoimi inicjalami lub Imieniem i pierwszą literą nazwiska
+LINK DO GOOGLE DRIVE - https://drive.google.com/drive/folders/15zvUczjwN4TCYZtvBDbmleqLHeGICHtm?usp=sharing
+
 ## Troubleshooting
 
 ### Problem: instalacja `PyAudio` nie przechodzi
